@@ -154,12 +154,33 @@ async def on_reaction_add(reaction, user):
             .execute()
 
         if posting_team.data:
-            team_id = posting_team.data[0]["id"]
-            supabase.table("scrims")\
+            team_id      = posting_team.data[0]["id"]
+            # Update the original scrim with the opponent name
+            original = supabase.table("scrims")\
                 .update({"opponent": accepting_team_name})\
                 .eq("team_id", team_id)\
                 .eq("opponent", "OPEN")\
                 .execute()
+
+            # Get the scrim details to mirror for the accepting team
+            scrim_data = supabase.table("scrims")\
+                .select("*")\
+                .eq("team_id", team_id)\
+                .eq("opponent", accepting_team_name)\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+
+            # Create a mirrored scrim for the accepting team so they can /gg too
+            if scrim_data.data and accepting_team_id:
+                s = scrim_data.data[0]
+                supabase.table("scrims").insert({
+                    "team_id":      accepting_team_id,
+                    "opponent":     posting_team_name,
+                    "scheduled_at": s["scheduled_at"],
+                    "map":          s["map"],
+                    "notes":        s["notes"]
+                }).execute()
 
         filled_embed = discord.Embed(
             title=embed.title,
