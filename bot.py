@@ -308,10 +308,11 @@ async def roster(interaction: discord.Interaction, team_name: str = None):
 
 @tree.command(name="lfs", description="Post a Looking For Scrim")
 @app_commands.describe(
-    time="What time? (e.g. 8pm, 9:30pm)",
-    blocks="How many blocks? (default 1 — each block = 1 full map rotation)"
+    time="What time? (e.g. 8pm, 9:30pm EST)",
+    blocks="How many blocks? (default 1 — each block = 1 full map rotation)",
+    day="What day? (e.g. today, tomorrow, Monday)"
 )
-async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1):
+async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None):
     server_id  = str(interaction.guild_id)
     discord_id = str(interaction.user.id)
 
@@ -334,8 +335,10 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1):
     }).execute()
 
     embed = discord.Embed(title=f"{team_name} are LFS 📢", color=0x00ff88)
-    embed.add_field(name="Time",         value=display_time, inline=True)
-    embed.add_field(name="Blocks",       value=block_text,   inline=True)
+    embed.add_field(name="Time",         value=display_time,        inline=True)
+    if day:
+        embed.add_field(name="Day",      value=day.capitalize(),    inline=True)
+    embed.add_field(name="Blocks",       value=block_text,          inline=True)
     embed.add_field(name="How to accept", value="React ✅ below to lock in this scrim!", inline=False)
     embed.set_footer(text="LFS")
 
@@ -505,10 +508,11 @@ async def record(interaction: discord.Interaction, team_name: str = None):
 
 @tree.command(name="lfs_cashout", description="Post a Looking For Scrim for cashout mode (3v3v3v3 — needs 4 teams)")
 @app_commands.describe(
-    time="What time? (e.g. 8pm, 9:30pm)",
-    blocks="How many blocks? (default 1)"
+    time="What time? (e.g. 8pm, 9:30pm EST)",
+    blocks="How many blocks? (default 1)",
+    day="What day? (e.g. today, tomorrow, Monday)"
 )
-async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int = 1):
+async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None):
     server_id  = str(interaction.guild_id)
     discord_id = str(interaction.user.id)
 
@@ -536,6 +540,8 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
         color=0xffaa00
     )
     embed.add_field(name="Time",        value=display_time, inline=True)
+    if day:
+        embed.add_field(name="Day",     value=day.capitalize(), inline=True)
     embed.add_field(name="Blocks",      value=block_text,   inline=True)
     embed.add_field(name="How to join", value="React ✅ to claim a slot! Need 3 more teams.", inline=False)
     embed.set_footer(text="CASHOUT_LFS")
