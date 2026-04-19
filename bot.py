@@ -343,13 +343,19 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1):
     await msg.add_reaction("✅")
 
     # Save message ID so /cancel can edit it later
-    supabase.table("scrims")\
-        .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+    latest_scrim = supabase.table("scrims")\
+        .select("id")\
         .eq("team_id", team_id)\
         .eq("opponent", "OPEN")\
         .order("created_at", desc=True)\
         .limit(1)\
         .execute()
+
+    if latest_scrim.data:
+        supabase.table("scrims")\
+            .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+            .eq("id", latest_scrim.data[0]["id"])\
+            .execute()
 
 # ── RESULT LOGGING ────────────────────────────────────────────────────────────
 
@@ -538,13 +544,19 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
     await msg.add_reaction("✅")
 
     # Save message ID so /cancel can edit it later
-    supabase.table("scrims")\
-        .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+    latest_scrim = supabase.table("scrims")\
+        .select("id")\
         .eq("team_id", team_id)\
         .eq("opponent", "CASHOUT_OPEN")\
         .order("created_at", desc=True)\
         .limit(1)\
         .execute()
+
+    if latest_scrim.data:
+        supabase.table("scrims")\
+            .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+            .eq("id", latest_scrim.data[0]["id"])\
+            .execute()
 
 # ── LEAVE TEAM ───────────────────────────────────────────────────────────────
 
