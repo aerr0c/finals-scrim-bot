@@ -342,6 +342,15 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1):
     msg = await interaction.original_response()
     await msg.add_reaction("✅")
 
+    # Save message ID so /cancel can edit it later
+    supabase.table("scrims")\
+        .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+        .eq("team_id", team_id)\
+        .eq("opponent", "OPEN")\
+        .order("created_at", desc=True)\
+        .limit(1)\
+        .execute()
+
 # ── RESULT LOGGING ────────────────────────────────────────────────────────────
 
 @tree.command(name="gg", description="Log your scrim result — only you will see the confirmation")
@@ -528,6 +537,15 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
     msg = await interaction.original_response()
     await msg.add_reaction("✅")
 
+    # Save message ID so /cancel can edit it later
+    supabase.table("scrims")\
+        .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
+        .eq("team_id", team_id)\
+        .eq("opponent", "CASHOUT_OPEN")\
+        .order("created_at", desc=True)\
+        .limit(1)\
+        .execute()
+
 # ── LEAVE TEAM ───────────────────────────────────────────────────────────────
 
 @tree.command(name="leave_team", description="Leave your current team")
@@ -611,9 +629,27 @@ async def cancel(interaction: discord.Interaction):
         )
         return
 
-    # Delete it from DB
-    scrim_id = open_scrim.data[0]["id"]
+    # Delete from DB and edit the original message
+    scrim_id   = open_scrim.data[0]["id"]
+    message_id = open_scrim.data[0].get("message_id")
+    channel_id = open_scrim.data[0].get("channel_id")
+
     supabase.table("scrims").delete().eq("id", scrim_id).execute()
+
+    # Edit the original embed to show cancelled
+    if message_id and channel_id:
+        try:
+            channel = bot.get_channel(int(channel_id))
+            if channel:
+                msg = await channel.fetch_message(int(message_id))
+                cancelled_embed = discord.Embed(
+                    title=f"{team_name} — LFS Cancelled ❌",
+                    description="This scrim has been cancelled.",
+                    color=0xff4444
+                )
+                await msg.edit(embed=cancelled_embed)
+        except Exception:
+            pass  # message already deleted or not found
 
     await interaction.response.send_message(
         f"✅ **{team_name}**'s open LFS has been cancelled.", ephemeral=True
