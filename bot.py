@@ -155,9 +155,9 @@ async def on_reaction_add(reaction, user):
 
         if posting_team.data:
             team_id      = posting_team.data[0]["id"]
-            # Update the original scrim with the opponent name
+            # Update the original scrim with the opponent name and confirm it
             original = supabase.table("scrims")\
-                .update({"opponent": accepting_team_name})\
+                .update({"opponent": accepting_team_name, "confirmed": True})\
                 .eq("team_id", team_id)\
                 .eq("opponent", "OPEN")\
                 .execute()
@@ -179,7 +179,8 @@ async def on_reaction_add(reaction, user):
                     "opponent":     posting_team_name,
                     "scheduled_at": s["scheduled_at"],
                     "map":          s["map"],
-                    "notes":        s["notes"]
+                    "notes":        s["notes"],
+                    "confirmed":    True
                 }).execute()
 
         filled_embed = discord.Embed(
@@ -382,14 +383,14 @@ async def gg(interaction: discord.Interaction, outcome: str, score: str = "N/A",
     scrim = supabase.table("scrims")\
         .select("*")\
         .eq("team_id", team_id)\
-        .neq("opponent", "OPEN")\
+        .eq("confirmed", True)\
         .order("created_at", desc=True)\
         .limit(1)\
         .execute()
 
     if not scrim.data:
         await interaction.response.send_message(
-            "❌ No completed scrims found for your team.", ephemeral=True
+            "❌ No confirmed scrims found for your team. A scrim is confirmed when an opposing team accepts your LFS.", ephemeral=True
         )
         return
 
@@ -461,7 +462,7 @@ async def record(interaction: discord.Interaction, team_name: str = None):
     scrims = supabase.table("scrims")\
         .select("id")\
         .eq("team_id", team_id)\
-        .neq("opponent", "OPEN")\
+        .eq("confirmed", True)\
         .execute()
 
     if not scrims.data:
@@ -683,8 +684,7 @@ async def history(interaction: discord.Interaction):
     scrims = supabase.table("scrims")\
         .select("*")\
         .eq("team_id", team_id)\
-        .neq("opponent", "OPEN")\
-        .neq("opponent", "CASHOUT_OPEN")\
+        .eq("confirmed", True)\
         .order("created_at", desc=True)\
         .limit(5)\
         .execute()
