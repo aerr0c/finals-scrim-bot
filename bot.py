@@ -528,6 +528,178 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
     msg = await interaction.original_response()
     await msg.add_reaction("✅")
 
+# ── LEAVE TEAM ───────────────────────────────────────────────────────────────
+
+@tree.command(name="leave_team", description="Leave your current team")
+async def leave_team(interaction: discord.Interaction):
+    server_id  = str(interaction.guild_id)
+    discord_id = str(interaction.user.id)
+
+    team_id, team_name = get_player_team(discord_id, server_id)
+    if not team_id:
+        await interaction.response.send_message("❌ You're not on a team.", ephemeral=True)
+        return
+
+    supabase.table("players")\
+        .update({"team_id": None})\
+        .eq("discord_id", discord_id)\
+        .execute()
+
+    await interaction.response.send_message(f"✅ You left **{team_name}**.", ephemeral=True)
+
+
+# ── RENAME TEAM ───────────────────────────────────────────────────────────────
+
+@tree.command(name="rename_team", description="Rename your team — record is preserved")
+@app_commands.describe(new_name="New team name")
+async def rename_team(interaction: discord.Interaction, new_name: str):
+    server_id  = str(interaction.guild_id)
+    discord_id = str(interaction.user.id)
+
+    team_id, old_name = get_player_team(discord_id, server_id)
+    if not team_id:
+        await interaction.response.send_message("❌ You're not on a team.", ephemeral=True)
+        return
+
+    # Check name isn't already taken
+    existing = supabase.table("teams")\
+        .select("*")\
+        .eq("server_id", server_id)\
+        .eq("team_name", new_name)\
+        .execute()
+
+    if existing.data:
+        await interaction.response.send_message(
+            f"❌ **{new_name}** is already taken.", ephemeral=True
+        )
+        return
+
+    supabase.table("teams")\
+        .update({"team_name": new_name})\
+        .eq("id", team_id)\
+        .execute()
+
+    await interaction.response.send_message(
+        f"✅ Team renamed from **{old_name}** to **{new_name}**. Record preserved!"
+    )
+
+
+# ── CANCEL LFS ────────────────────────────────────────────────────────────────
+
+@tree.command(name="cancel", description="Cancel your team's open LFS post")
+async def cancel(interaction: discord.Interaction):
+    server_id  = str(interaction.guild_id)
+    discord_id = str(interaction.user.id)
+
+    team_id, team_name = get_player_team(discord_id, server_id)
+    if not team_id:
+        await interaction.response.send_message("❌ You're not on a team.", ephemeral=True)
+        return
+
+    # Find open scrim
+    open_scrim = supabase.table("scrims")\
+        .select("*")\
+        .eq("team_id", team_id)\
+        .in_("opponent", ["OPEN", "CASHOUT_OPEN"])\
+        .order("created_at", desc=True)\
+        .limit(1)\
+        .execute()
+
+    if not open_scrim.data:
+        await interaction.response.send_message(
+            f"❌ No open LFS found for **{team_name}**.", ephemeral=True
+        )
+        return
+
+    # Delete it from DB
+    scrim_id = open_scrim.data[0]["id"]
+    supabase.table("scrims").delete().eq("id", scrim_id).execute()
+
+    await interaction.response.send_message(
+        f"✅ **{team_name}**'s open LFS has been cancelled.", ephemeral=True
+    )
+
+
+# ── HISTORY ───────────────────────────────────────────────────────────────────
+
+@tree.command(name="history", description="See your team's last 5 scrims — only visible to you")
+async def history(interaction: discord.Interaction):
+    server_id  = str(interaction.guild_id)
+    discord_id = str(interaction.user.id)
+
+    team_id, team_name = get_player_team(discord_id, server_id)
+    if not team_id:
+        await interaction.response.send_message("❌ You're not on a team.", ephemeral=True)
+        return
+
+    scrims = supabase.table("scrims")\
+        .select("*")\
+        .eq("team_id", team_id)\
+        .neq("opponent", "OPEN")\
+        .neq("opponent", "CASHOUT_OPEN")\
+        .order("created_at", desc=True)\
+        .limit(5)\
+        .execute()
+
+    if not scrims.data:
+        await interaction.response.send_message(
+            f"**{team_name}** has no scrim history yet.", ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(title=f"📋 {team_name} — Last 5 Scrims", color=0x00ff88)
+
+    for s in scrims.data:
+        # Get result for this scrim
+        result = supabase.table("results")\
+            .select("*")\
+            .eq("scrim_id", s["id"])\
+            .execute()
+
+        if result.data:
+            r       = result.data[0]
+            outcome = r["outcome"].upper()
+            score   = r["score"] if r["score"] != "N/A" else ""
+            icons   = {"WIN": "🏆", "LOSS": "💀", "DRAW": "🤝"}
+            icon    = icons.get(outcome, "")
+            value   = f"{icon} {outcome} {score}".strip()
+        else:
+            value = "⏳ No result logged"
+
+        embed.add_field(
+            name=f"vs {s['opponent']}",
+            value=value,
+            inline=False
+        )
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ── TEAMS ─────────────────────────────────────────────────────────────────────
+
+@tree.command(name="teams", description="List all teams registered in this server")
+async def teams(interaction: discord.Interaction):
+    server_id = str(interaction.guild_id)
+
+    all_teams = supabase.table("teams")\
+        .select("*")\
+        .eq("server_id", server_id)\
+        .execute()
+
+    if not all_teams.data:
+        await interaction.response.send_message(
+            "No teams yet. Use `/create_team` to make one!", ephemeral=True
+        )
+        return
+
+    names = "\n".join([f"• {t['team_name']}" for t in all_teams.data])
+    embed = discord.Embed(
+        title="🏆 Registered Teams",
+        description=names,
+        color=0x00ff88
+    )
+    await interaction.response.send_message(embed=embed)
+
 # ── RUN ───────────────────────────────────────────────────────────────────────
 
 bot.run(os.getenv("DISCORD_TOKEN"))
