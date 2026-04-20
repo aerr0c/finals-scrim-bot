@@ -93,7 +93,7 @@ async def on_reaction_add(reaction, user):
         # Parse current teams from embed description
         desc         = embed.description or ""
         filled_teams = [t.strip() for t in desc.split("\n") if t.strip().startswith("•")]
-        team_names   = [t.lstrip("• ").strip() for t in filled_teams]
+        team_names   = [t.strip()[2:].strip() if t.strip().startswith("• ") else t.strip() for t in filled_teams]
 
         if accepting_team_name in team_names:
             return  # already joined
@@ -102,6 +102,7 @@ async def on_reaction_add(reaction, user):
         slots_filled = len(team_names)
         time_field   = next((f.value for f in embed.fields if f.name == "Time"),   "TBD")
         blocks_field = next((f.value for f in embed.fields if f.name == "Blocks"), "1")
+        day_field    = next((f.value for f in embed.fields if f.name == "Day"),    None)
         host_name    = embed.title.replace(" are LFS 💰", "").strip()
 
         if slots_filled < 4:
@@ -113,6 +114,8 @@ async def on_reaction_add(reaction, user):
                 color=0xffaa00
             )
             updated_embed.add_field(name="Time",         value=time_field,   inline=True)
+            if day_field:
+                updated_embed.add_field(name="Day",      value=day_field,    inline=True)
             updated_embed.add_field(name="Blocks",       value=blocks_field, inline=True)
             updated_embed.add_field(name="How to join",  value="React ✅ to claim a slot!", inline=False)
             updated_embed.set_footer(text="CASHOUT_LFS")
@@ -134,9 +137,57 @@ async def on_reaction_add(reaction, user):
             )
             confirm_embed.add_field(name="Teams",  value=teams_str,    inline=False)
             confirm_embed.add_field(name="Time",   value=time_field,   inline=True)
+            if day_field:
+                confirm_embed.add_field(name="Day", value=day_field, inline=True)
             confirm_embed.add_field(name="Blocks", value=blocks_field, inline=True)
             confirm_embed.set_footer(text="GL HF 🎮")
             await message.channel.send(embed=confirm_embed)
+
+            # Confirm the host's scrim and create entries for all other teams
+            host_team = supabase.table("teams")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .eq("team_name", host_name)\
+                .execute()
+
+            if host_team.data:
+                host_team_id = host_team.data[0]["id"]
+                # Confirm the host's original scrim
+                host_scrim = supabase.table("scrims")\
+                    .select("*")\
+                    .eq("team_id", host_team_id)\
+                    .eq("opponent", "CASHOUT_OPEN")\
+                    .order("created_at", desc=True)\
+                    .limit(1)\
+                    .execute()
+
+                if host_scrim.data:
+                    s = host_scrim.data[0]
+                    opponents_str = ", ".join([t for t in team_names if t != host_name])
+                    supabase.table("scrims")\
+                        .update({"opponent": opponents_str, "confirmed": True})\
+                        .eq("id", s["id"])\
+                        .execute()
+
+                    # Create mirrored scrims for every non-host team
+                    for tn in team_names:
+                        if tn == host_name:
+                            continue
+                        other_team = supabase.table("teams")\
+                            .select("id")\
+                            .eq("server_id", server_id)\
+                            .eq("team_name", tn)\
+                            .execute()
+                        if other_team.data:
+                            others_str = ", ".join([t for t in team_names if t != tn])
+                            supabase.table("scrims").insert({
+                                "team_id":      other_team.data[0]["id"],
+                                "opponent":     others_str,
+                                "scheduled_at": s["scheduled_at"],
+                                "map":          s["map"],
+                                "notes":        s["notes"],
+                                "confirmed":    True
+                            }).execute()
 
     # ── 3v3 MODE (2 teams) ───────────────────────────────────────────────────
     elif footer_text == "LFS":
@@ -146,6 +197,7 @@ async def on_reaction_add(reaction, user):
 
         time_field   = next((f.value for f in embed.fields if f.name == "Time"),   "TBD")
         blocks_field = next((f.value for f in embed.fields if f.name == "Blocks"), "1")
+        day_field    = next((f.value for f in embed.fields if f.name == "Day"),    None)
 
         posting_team = supabase.table("teams")\
             .select("*")\
@@ -193,6 +245,8 @@ async def on_reaction_add(reaction, user):
         confirm_embed = discord.Embed(title="🎮 Scrim Confirmed!", color=0x00ff88)
         confirm_embed.add_field(name="Teams",  value=f"**{posting_team_name}** vs **{accepting_team_name}**", inline=False)
         confirm_embed.add_field(name="Time",   value=time_field,   inline=True)
+        if day_field:
+            confirm_embed.add_field(name="Day", value=day_field, inline=True)
         confirm_embed.add_field(name="Blocks", value=blocks_field, inline=True)
         confirm_embed.set_footer(text="GL HF 🎮")
         await message.channel.send(embed=confirm_embed)
@@ -399,6 +453,18 @@ async def gg(interaction: discord.Interaction, outcome: str, score: str = "N/A",
 
     scrim_id = scrim.data[0]["id"]
     opponent = scrim.data[0]["opponent"]
+
+    # Check if result already logged for this scrim
+    existing_result = supabase.table("results")\
+        .select("id")\
+        .eq("scrim_id", scrim_id)\
+        .execute()
+
+    if existing_result.data:
+        await interaction.response.send_message(
+            f"❌ You already logged a result for your scrim vs **{opponent}**.", ephemeral=True
+        )
+        return
 
     # Parse individual wins/losses from score like "4-2"
     ind_wins = ind_losses = 0
