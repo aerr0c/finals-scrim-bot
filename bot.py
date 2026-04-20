@@ -80,36 +80,65 @@ async def on_reaction_add(reaction, user):
     server_id  = str(message.guild.id)
     discord_id = str(user.id)
 
-    accepting_team_id, accepting_team_name = get_player_team(discord_id, server_id)
-    if not accepting_team_id:
-        await message.channel.send(
-            f"❌ {user.mention} you need to be on a team to accept. Use `/join_team` first.",
-            delete_after=10
+    # ── FREEFORM MODE (no team required) ─────────────────────────────────────
+    if footer_text == "LFS_FREE":
+        posting_name = embed.title.replace(" is LFS 📢", "").strip()
+        accepting_name = str(user.name)
+
+        if accepting_name == posting_name:
+            return
+
+        time_field   = next((f.value for f in embed.fields if f.name == "Time"),   "TBD")
+        blocks_field = next((f.value for f in embed.fields if f.name == "Blocks"), "1")
+        day_field    = next((f.value for f in embed.fields if f.name == "Day"),    None)
+
+        filled_embed = discord.Embed(
+            title=embed.title,
+            description="✅ **Scrim filled!**",
+            color=0x555555
         )
+        await message.edit(embed=filled_embed)
+
+        confirm_embed = discord.Embed(title="🎮 Scrim Confirmed!", color=0x00ff88)
+        confirm_embed.add_field(name="Players", value=f"**{posting_name}** vs **{accepting_name}**", inline=False)
+        confirm_embed.add_field(name="Time",    value=time_field,   inline=True)
+        if day_field:
+            confirm_embed.add_field(name="Day", value=day_field, inline=True)
+        confirm_embed.add_field(name="Blocks",  value=blocks_field, inline=True)
+        confirm_embed.set_footer(text="GL HF 🎮")
+        await message.channel.send(embed=confirm_embed)
         return
 
-    # ── CASHOUT MODE (4 teams) ───────────────────────────────────────────────
+    # ── TEAM MODES ─────────────────────────────────────────────────────────
+    accepting_team_id, accepting_team_name = get_player_team(discord_id, server_id)
+    # Use team name if on a team, otherwise use Discord username
+    accepting_display = accepting_team_name if accepting_team_id else str(user.name)
+
+    # ── CASHOUT MODE (4 slots) ───────────────────────────────────────────
     if footer_text == "CASHOUT_LFS":
         # Parse current teams from embed description
         desc         = embed.description or ""
         filled_teams = [t.strip() for t in desc.split("\n") if t.strip().startswith("•")]
         team_names   = [t.strip()[2:].strip() if t.strip().startswith("• ") else t.strip() for t in filled_teams]
 
-        if accepting_team_name in team_names:
+        if accepting_display in team_names:
             return  # already joined
 
-        team_names.append(accepting_team_name)
+        team_names.append(accepting_display)
         slots_filled = len(team_names)
         time_field   = next((f.value for f in embed.fields if f.name == "Time"),   "TBD")
         blocks_field = next((f.value for f in embed.fields if f.name == "Blocks"), "1")
         day_field    = next((f.value for f in embed.fields if f.name == "Day"),    None)
-        host_name    = embed.title.replace(" are LFS 💰", "").strip()
+        host_name    = embed.title.replace(" are LFS 💰", "").replace(" is LFS 💰", "").strip()
 
         if slots_filled < 4:
             # Update embed with new slot count
             teams_str   = "\n".join([f"• {t}" for t in team_names])
+            # Determine if host is a team or individual
+            is_host_team = bool(supabase.table("teams").select("id").eq("server_id", server_id).eq("team_name", host_name).execute().data)
+            host_title = f"{host_name} {'are' if is_host_team else 'is'} LFS 💰"
             updated_embed = discord.Embed(
-                title=f"{host_name} are LFS 💰",
+                title=host_title,
                 description=f"**Slots: {slots_filled}/4**\n{teams_str}",
                 color=0xffaa00
             )
@@ -143,7 +172,7 @@ async def on_reaction_add(reaction, user):
             confirm_embed.set_footer(text="GL HF 🎮")
             await message.channel.send(embed=confirm_embed)
 
-            # Confirm the host's scrim and create entries for all other teams
+            # Confirm the host's scrim and create entries for teams that exist
             host_team = supabase.table("teams")\
                 .select("*")\
                 .eq("server_id", server_id)\
@@ -152,7 +181,6 @@ async def on_reaction_add(reaction, user):
 
             if host_team.data:
                 host_team_id = host_team.data[0]["id"]
-                # Confirm the host's original scrim
                 host_scrim = supabase.table("scrims")\
                     .select("*")\
                     .eq("team_id", host_team_id)\
@@ -169,7 +197,7 @@ async def on_reaction_add(reaction, user):
                         .eq("id", s["id"])\
                         .execute()
 
-                    # Create mirrored scrims for every non-host team
+                    # Create mirrored scrims only for participants that have teams
                     for tn in team_names:
                         if tn == host_name:
                             continue
@@ -189,10 +217,10 @@ async def on_reaction_add(reaction, user):
                                 "confirmed":    True
                             }).execute()
 
-    # ── 3v3 MODE (2 teams) ───────────────────────────────────────────────────
+    # ── 3v3 MODE (2 teams — anyone can accept) ──────────────────────────────
     elif footer_text == "LFS":
         posting_team_name = embed.title.replace(" are LFS 📢", "").strip()
-        if accepting_team_name == posting_team_name:
+        if accepting_display == posting_team_name:
             return
 
         time_field   = next((f.value for f in embed.fields if f.name == "Time"),   "TBD")
@@ -209,7 +237,7 @@ async def on_reaction_add(reaction, user):
             team_id      = posting_team.data[0]["id"]
             # Update the original scrim with the opponent name and confirm it
             original = supabase.table("scrims")\
-                .update({"opponent": accepting_team_name, "confirmed": True})\
+                .update({"opponent": accepting_display, "confirmed": True})\
                 .eq("team_id", team_id)\
                 .eq("opponent", "OPEN")\
                 .execute()
@@ -218,12 +246,12 @@ async def on_reaction_add(reaction, user):
             scrim_data = supabase.table("scrims")\
                 .select("*")\
                 .eq("team_id", team_id)\
-                .eq("opponent", accepting_team_name)\
+                .eq("opponent", accepting_display)\
                 .order("created_at", desc=True)\
                 .limit(1)\
                 .execute()
 
-            # Create a mirrored scrim for the accepting team so they can /gg too
+            # Create a mirrored scrim for the accepting team (only if they're on a team)
             if scrim_data.data and accepting_team_id:
                 s = scrim_data.data[0]
                 supabase.table("scrims").insert({
@@ -243,7 +271,7 @@ async def on_reaction_add(reaction, user):
         await message.edit(embed=filled_embed)
 
         confirm_embed = discord.Embed(title="🎮 Scrim Confirmed!", color=0x00ff88)
-        confirm_embed.add_field(name="Teams",  value=f"**{posting_team_name}** vs **{accepting_team_name}**", inline=False)
+        confirm_embed.add_field(name="Teams",  value=f"**{posting_team_name}** vs **{accepting_display}**", inline=False)
         confirm_embed.add_field(name="Time",   value=time_field,   inline=True)
         if day_field:
             confirm_embed.add_field(name="Day", value=day_field, inline=True)
@@ -360,60 +388,67 @@ async def roster(interaction: discord.Interaction, team_name: str = None):
 
 # ── CORE: LFS ─────────────────────────────────────────────────────────────────
 
-@tree.command(name="lfs", description="Post a Looking For Scrim")
+@tree.command(name="lfs", description="Post a Looking For Scrim — works with or without a team")
 @app_commands.describe(
     time="What time? (e.g. 8pm, 9:30pm EST)",
     blocks="How many blocks? (default 1 — each block = 1 full map rotation)",
-    day="What day? (e.g. today, tomorrow, Monday)"
+    day="What day? (e.g. today, tomorrow, Monday)",
+    msg="Optional message (e.g. looking for experienced teams, we run HML)"
 )
-async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None):
+async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None, msg: str = None):
     server_id  = str(interaction.guild_id)
     discord_id = str(interaction.user.id)
+    username   = str(interaction.user.name)
 
     team_id, team_name = get_player_team(discord_id, server_id)
-    if not team_id:
-        await interaction.response.send_message(
-            "❌ You're not on a team yet. Use `/join_team` first.", ephemeral=True
-        )
-        return
 
     display_time, db_timestamp = parse_time(time)
     block_text = f"{blocks} block{'s' if blocks > 1 else ''} ({blocks} full map rotation{'s' if blocks > 1 else ''})"
 
-    supabase.table("scrims").insert({
-        "team_id":      team_id,
-        "opponent":     "OPEN",
-        "scheduled_at": db_timestamp,
-        "map":          block_text,
-        "notes":        f"{blocks} blocks"
-    }).execute()
+    # Determine display name — team name if on a team, username if freeform
+    display_name = team_name if team_id else username
+    is_freeform  = team_id is None
 
-    embed = discord.Embed(title=f"{team_name} are LFS 📢", color=0x00ff88)
+    # Only save to DB if on a team (freeform is just a visual post)
+    if team_id:
+        supabase.table("scrims").insert({
+            "team_id":      team_id,
+            "opponent":     "OPEN",
+            "scheduled_at": db_timestamp,
+            "map":          block_text,
+            "notes":        f"{blocks} blocks"
+        }).execute()
+
+    embed = discord.Embed(title=f"{display_name} {'is' if is_freeform else 'are'} LFS 📢", color=0x00ff88)
+    if msg:
+        embed.description = msg
     embed.add_field(name="Time",         value=display_time,        inline=True)
     if day:
         embed.add_field(name="Day",      value=day.capitalize(),    inline=True)
     embed.add_field(name="Blocks",       value=block_text,          inline=True)
     embed.add_field(name="How to accept", value="React ✅ below to lock in this scrim!", inline=False)
-    embed.set_footer(text="LFS")
+    # Footer encodes mode: LFS for team, LFS_FREE for freeform
+    embed.set_footer(text="LFS_FREE" if is_freeform else "LFS")
 
     await interaction.response.send_message(embed=embed)
-    msg = await interaction.original_response()
-    await msg.add_reaction("✅")
+    msg_obj = await interaction.original_response()
+    await msg_obj.add_reaction("✅")
 
-    # Save message ID so /cancel can edit it later
-    latest_scrim = supabase.table("scrims")\
-        .select("id")\
-        .eq("team_id", team_id)\
-        .eq("opponent", "OPEN")\
-        .order("created_at", desc=True)\
-        .limit(1)\
-        .execute()
-
-    if latest_scrim.data:
-        supabase.table("scrims")\
-            .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
-            .eq("id", latest_scrim.data[0]["id"])\
+    # Save message ID so /cancel can edit it later (team mode only)
+    if team_id:
+        latest_scrim = supabase.table("scrims")\
+            .select("id")\
+            .eq("team_id", team_id)\
+            .eq("opponent", "OPEN")\
+            .order("created_at", desc=True)\
+            .limit(1)\
             .execute()
+
+        if latest_scrim.data:
+            supabase.table("scrims")\
+                .update({"message_id": str(msg_obj.id), "channel_id": str(msg_obj.channel.id)})\
+                .eq("id", latest_scrim.data[0]["id"])\
+                .execute()
 
 # ── RESULT LOGGING ────────────────────────────────────────────────────────────
 
@@ -576,33 +611,38 @@ async def record(interaction: discord.Interaction, team_name: str = None):
 @app_commands.describe(
     time="What time? (e.g. 8pm, 9:30pm EST)",
     blocks="How many blocks? (default 1)",
-    day="What day? (e.g. today, tomorrow, Monday)"
+    day="What day? (e.g. today, tomorrow, Monday)",
+    msg="Optional message (e.g. looking for experienced teams)"
 )
-async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None):
+async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int = 1, day: str = None, msg: str = None):
     server_id  = str(interaction.guild_id)
     discord_id = str(interaction.user.id)
+    username   = str(interaction.user.name)
 
     team_id, team_name = get_player_team(discord_id, server_id)
-    if not team_id:
-        await interaction.response.send_message(
-            "❌ You're not on a team yet. Use `/join_team` first.", ephemeral=True
-        )
-        return
+    display_name = team_name if team_id else username
+    is_freeform  = team_id is None
 
     display_time, db_timestamp = parse_time(time)
     block_text = f"{blocks} block{'s' if blocks > 1 else ''} ({blocks} full map rotation{'s' if blocks > 1 else ''})"
 
-    supabase.table("scrims").insert({
-        "team_id":      team_id,
-        "opponent":     "CASHOUT_OPEN",
-        "scheduled_at": db_timestamp,
-        "map":          block_text,
-        "notes":        f"cashout {blocks} blocks"
-    }).execute()
+    # Only save to DB if on a team
+    if team_id:
+        supabase.table("scrims").insert({
+            "team_id":      team_id,
+            "opponent":     "CASHOUT_OPEN",
+            "scheduled_at": db_timestamp,
+            "map":          block_text,
+            "notes":        f"cashout {blocks} blocks"
+        }).execute()
+
+    desc_parts = [f"**Slots: 1/4**", f"• {display_name}"]
+    if msg:
+        desc_parts.append(f"\n_{msg}_")
 
     embed = discord.Embed(
-        title=f"{team_name} are LFS 💰",
-        description=f"**Slots: 1/4**\n• {team_name}",
+        title=f"{display_name} {'is' if is_freeform else 'are'} LFS 💰",
+        description="\n".join(desc_parts),
         color=0xffaa00
     )
     embed.add_field(name="Time",        value=display_time, inline=True)
@@ -613,23 +653,24 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
     embed.set_footer(text="CASHOUT_LFS")
 
     await interaction.response.send_message(embed=embed)
-    msg = await interaction.original_response()
-    await msg.add_reaction("✅")
+    msg_obj = await interaction.original_response()
+    await msg_obj.add_reaction("✅")
 
-    # Save message ID so /cancel can edit it later
-    latest_scrim = supabase.table("scrims")\
-        .select("id")\
-        .eq("team_id", team_id)\
-        .eq("opponent", "CASHOUT_OPEN")\
-        .order("created_at", desc=True)\
-        .limit(1)\
-        .execute()
-
-    if latest_scrim.data:
-        supabase.table("scrims")\
-            .update({"message_id": str(msg.id), "channel_id": str(msg.channel.id)})\
-            .eq("id", latest_scrim.data[0]["id"])\
+    # Save message ID so /cancel can edit it later (team mode only)
+    if team_id:
+        latest_scrim = supabase.table("scrims")\
+            .select("id")\
+            .eq("team_id", team_id)\
+            .eq("opponent", "CASHOUT_OPEN")\
+            .order("created_at", desc=True)\
+            .limit(1)\
             .execute()
+
+        if latest_scrim.data:
+            supabase.table("scrims")\
+                .update({"message_id": str(msg_obj.id), "channel_id": str(msg_obj.channel.id)})\
+                .eq("id", latest_scrim.data[0]["id"])\
+                .execute()
 
 # ── LEAVE TEAM ───────────────────────────────────────────────────────────────
 
