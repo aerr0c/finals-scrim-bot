@@ -304,7 +304,7 @@ async def create_team(interaction: discord.Interaction, team_name: str):
     }).execute()
 
     await interaction.response.send_message(
-        f"✅ Team **{team_name}** created! Use `/join_team` to join."
+        f"✅ Team **{team_name}** created! Use `/join_team` to join.", ephemeral=True
     )
 
 
@@ -346,7 +346,7 @@ async def join_team(interaction: discord.Interaction, team_name: str):
             "team_id": team_id
         }).execute()
 
-    await interaction.response.send_message(f"✅ **{username}** joined **{team_name}**!")
+    await interaction.response.send_message(f"✅ **{username}** joined **{team_name}**!", ephemeral=True)
 
 
 @tree.command(name="roster", description="See a team's players")
@@ -379,12 +379,12 @@ async def roster(interaction: discord.Interaction, team_name: str = None):
         .execute()
 
     if not players.data:
-        await interaction.response.send_message(f"**{team_name}** has no players yet.")
+        await interaction.response.send_message(f"**{team_name}** has no players yet.", ephemeral=True)
         return
 
     names = "\n".join([f"• {p['discord_username']}" for p in players.data])
     embed = discord.Embed(title=f"🎮 {team_name} Roster", description=names, color=0x00ff88)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ── CORE: LFS ─────────────────────────────────────────────────────────────────
 
@@ -724,7 +724,7 @@ async def rename_team(interaction: discord.Interaction, new_name: str):
         .execute()
 
     await interaction.response.send_message(
-        f"✅ Team renamed from **{old_name}** to **{new_name}**. Record preserved!"
+        f"✅ Team renamed from **{old_name}** to **{new_name}**. Record preserved!", ephemeral=True
     )
 
 
@@ -859,8 +859,6 @@ async def teams(interaction: discord.Interaction):
         description=names,
         color=0x00ff88
     )
-    await interaction.response.send_message(embed=embed)
-
-# ── RUN ───────────────────────────────────────────────────────────────────────
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 bot.run(os.getenv("DISCORD_TOKEN"))
