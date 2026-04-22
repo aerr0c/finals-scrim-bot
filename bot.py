@@ -77,8 +77,8 @@ async def on_reaction_add(reaction, user):
     footer_parts = footer_text.split("|")
     footer_mode  = footer_parts[0]
 
-    # Poster ID is stored in a hidden zero-width field
-    poster_id = next((f.value for f in embed.fields if f.name == "\u200b"), None)
+    # Poster ID is stored in the embed url as https://discord.com/users/{id}
+    poster_id = embed.url.split("/")[-1] if embed.url else None
 
     if "LFS" not in footer_mode:
         return
@@ -147,15 +147,14 @@ async def on_reaction_add(reaction, user):
             updated_embed = discord.Embed(
                 title=host_title,
                 description=f"**Slots: {slots_filled}/4**\n{teams_str}",
-                color=0xffaa00
+                color=0xffaa00,
+                url=embed.url
             )
             updated_embed.add_field(name="Time",         value=time_field,   inline=True)
             if day_field:
                 updated_embed.add_field(name="Day",      value=day_field,    inline=True)
             updated_embed.add_field(name="Blocks",       value=blocks_field, inline=True)
             updated_embed.add_field(name="How to join",  value="React ✅ to claim a slot!", inline=False)
-            if poster_id:
-                updated_embed.add_field(name="\u200b", value=poster_id, inline=False)
             updated_embed.set_footer(text="CASHOUT_LFS")
             await message.edit(embed=updated_embed)
 
@@ -431,7 +430,7 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day:
             "posted_by":    discord_id
         }).execute()
 
-    embed = discord.Embed(title=f"{display_name} {'is' if is_freeform else 'are'} LFS 📢", color=0x00ff88)
+    embed = discord.Embed(title=f"{display_name} {'is' if is_freeform else 'are'} LFS 📢", color=0x00ff88, url=f"https://discord.com/users/{discord_id}")
     if msg:
         embed.description = msg
     embed.add_field(name="Time",         value=display_time,        inline=True)
@@ -439,7 +438,6 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day:
         embed.add_field(name="Day",      value=day.capitalize(),    inline=True)
     embed.add_field(name="Blocks",       value=block_text,          inline=True)
     embed.add_field(name="How to accept", value="React ✅ below to lock in this scrim!", inline=False)
-    embed.add_field(name="\u200b", value=discord_id, inline=False)  # hidden poster ID
     embed.set_footer(text="LFS_FREE" if is_freeform else "LFS")
 
     await interaction.response.send_message(embed=embed)
@@ -656,14 +654,14 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
     embed = discord.Embed(
         title=f"{display_name} {'is' if is_freeform else 'are'} LFS 💰",
         description="\n".join(desc_parts),
-        color=0xffaa00
+        color=0xffaa00,
+        url=f"https://discord.com/users/{discord_id}"
     )
     embed.add_field(name="Time",        value=display_time, inline=True)
     if day:
         embed.add_field(name="Day",     value=day.capitalize(), inline=True)
     embed.add_field(name="Blocks",      value=block_text,   inline=True)
     embed.add_field(name="How to join", value="React ✅ to claim a slot! Need 3 more teams.", inline=False)
-    embed.add_field(name="\u200b", value=discord_id, inline=False)  # hidden poster ID
     embed.set_footer(text="CASHOUT_LFS")
 
     await interaction.response.send_message(embed=embed)
