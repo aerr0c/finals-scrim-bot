@@ -74,14 +74,18 @@ async def on_reaction_add(reaction, user):
     embed = message.embeds[0]
     footer_text = embed.footer.text if embed.footer else ""
 
-    if "LFS" not in footer_text:
+    footer_parts = footer_text.split("|")
+    footer_mode  = footer_parts[0]
+    poster_id    = footer_parts[1] if len(footer_parts) > 1 else None
+
+    if "LFS" not in footer_mode:
         return
 
     server_id  = str(message.guild.id)
     discord_id = str(user.id)
 
     # ── FREEFORM MODE (no team required) ─────────────────────────────────────
-    if footer_text == "LFS_FREE":
+    if footer_mode == "LFS_FREE":
         posting_name = embed.title.replace(" is LFS 📢", "").strip()
         accepting_name = str(user.name)
 
@@ -106,7 +110,8 @@ async def on_reaction_add(reaction, user):
             confirm_embed.add_field(name="Day", value=day_field, inline=True)
         confirm_embed.add_field(name="Blocks",  value=blocks_field, inline=True)
         confirm_embed.set_footer(text="GL HF 🎮")
-        await message.channel.send(embed=confirm_embed)
+        ping = f"<@{poster_id}> <@{discord_id}>" if poster_id else f"<@{discord_id}>"
+        await message.channel.send(content=ping, embed=confirm_embed)
         return
 
     # ── TEAM MODES ─────────────────────────────────────────────────────────
@@ -115,7 +120,7 @@ async def on_reaction_add(reaction, user):
     accepting_display = accepting_team_name if accepting_team_id else str(user.name)
 
     # ── CASHOUT MODE (4 slots) ───────────────────────────────────────────
-    if footer_text == "CASHOUT_LFS":
+    if footer_mode == "CASHOUT_LFS":
         # Parse current teams from embed description
         desc         = embed.description or ""
         filled_teams = [t.strip() for t in desc.split("\n") if t.strip().startswith("•")]
@@ -147,7 +152,7 @@ async def on_reaction_add(reaction, user):
                 updated_embed.add_field(name="Day",      value=day_field,    inline=True)
             updated_embed.add_field(name="Blocks",       value=blocks_field, inline=True)
             updated_embed.add_field(name="How to join",  value="React ✅ to claim a slot!", inline=False)
-            updated_embed.set_footer(text="CASHOUT_LFS")
+            updated_embed.set_footer(text=f"CASHOUT_LFS|{poster_id}" if poster_id else "CASHOUT_LFS")
             await message.edit(embed=updated_embed)
 
         else:
@@ -170,7 +175,8 @@ async def on_reaction_add(reaction, user):
                 confirm_embed.add_field(name="Day", value=day_field, inline=True)
             confirm_embed.add_field(name="Blocks", value=blocks_field, inline=True)
             confirm_embed.set_footer(text="GL HF 🎮")
-            await message.channel.send(embed=confirm_embed)
+            ping = f"<@{poster_id}> <@{discord_id}>" if poster_id else f"<@{discord_id}>"
+            await message.channel.send(content=ping, embed=confirm_embed)
 
             # Confirm the host's scrim and create entries for teams that exist
             host_team = supabase.table("teams")\
@@ -218,7 +224,7 @@ async def on_reaction_add(reaction, user):
                             }).execute()
 
     # ── 3v3 MODE (2 teams — anyone can accept) ──────────────────────────────
-    elif footer_text == "LFS":
+    elif footer_mode == "LFS":
         posting_team_name = embed.title.replace(" are LFS 📢", "").strip()
         if accepting_display == posting_team_name:
             return
@@ -277,7 +283,8 @@ async def on_reaction_add(reaction, user):
             confirm_embed.add_field(name="Day", value=day_field, inline=True)
         confirm_embed.add_field(name="Blocks", value=blocks_field, inline=True)
         confirm_embed.set_footer(text="GL HF 🎮")
-        await message.channel.send(embed=confirm_embed)
+        ping = f"<@{poster_id}> <@{discord_id}>" if poster_id else f"<@{discord_id}>"
+        await message.channel.send(content=ping, embed=confirm_embed)
 
 # ── TEAM COMMANDS ─────────────────────────────────────────────────────────────
 
@@ -416,7 +423,8 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day:
             "opponent":     "OPEN",
             "scheduled_at": db_timestamp,
             "map":          block_text,
-            "notes":        f"{blocks} blocks"
+            "notes":        f"{blocks} blocks",
+            "posted_by":    discord_id
         }).execute()
 
     embed = discord.Embed(title=f"{display_name} {'is' if is_freeform else 'are'} LFS 📢", color=0x00ff88)
@@ -427,8 +435,7 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day:
         embed.add_field(name="Day",      value=day.capitalize(),    inline=True)
     embed.add_field(name="Blocks",       value=block_text,          inline=True)
     embed.add_field(name="How to accept", value="React ✅ below to lock in this scrim!", inline=False)
-    # Footer encodes mode: LFS for team, LFS_FREE for freeform
-    embed.set_footer(text="LFS_FREE" if is_freeform else "LFS")
+    embed.set_footer(text=f"{'LFS_FREE' if is_freeform else 'LFS'}|{discord_id}")
 
     await interaction.response.send_message(embed=embed)
     msg_obj = await interaction.original_response()
@@ -633,7 +640,8 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
             "opponent":     "CASHOUT_OPEN",
             "scheduled_at": db_timestamp,
             "map":          block_text,
-            "notes":        f"cashout {blocks} blocks"
+            "notes":        f"cashout {blocks} blocks",
+            "posted_by":    discord_id
         }).execute()
 
     desc_parts = [f"**Slots: 1/4**", f"• {display_name}"]
@@ -650,7 +658,7 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
         embed.add_field(name="Day",     value=day.capitalize(), inline=True)
     embed.add_field(name="Blocks",      value=block_text,   inline=True)
     embed.add_field(name="How to join", value="React ✅ to claim a slot! Need 3 more teams.", inline=False)
-    embed.set_footer(text="CASHOUT_LFS")
+    embed.set_footer(text=f"CASHOUT_LFS|{discord_id}")
 
     await interaction.response.send_message(embed=embed)
     msg_obj = await interaction.original_response()
