@@ -76,7 +76,9 @@ async def on_reaction_add(reaction, user):
 
     footer_parts = footer_text.split("|")
     footer_mode  = footer_parts[0]
-    poster_id    = footer_parts[1] if len(footer_parts) > 1 else None
+
+    # Poster ID is stored in a hidden zero-width field
+    poster_id = next((f.value for f in embed.fields if f.name == "\u200b"), None)
 
     if "LFS" not in footer_mode:
         return
@@ -152,7 +154,9 @@ async def on_reaction_add(reaction, user):
                 updated_embed.add_field(name="Day",      value=day_field,    inline=True)
             updated_embed.add_field(name="Blocks",       value=blocks_field, inline=True)
             updated_embed.add_field(name="How to join",  value="React ✅ to claim a slot!", inline=False)
-            updated_embed.set_footer(text=f"CASHOUT_LFS|{poster_id}" if poster_id else "CASHOUT_LFS")
+            if poster_id:
+                updated_embed.add_field(name="\u200b", value=poster_id, inline=False)
+            updated_embed.set_footer(text="CASHOUT_LFS")
             await message.edit(embed=updated_embed)
 
         else:
@@ -435,7 +439,8 @@ async def lfs(interaction: discord.Interaction, time: str, blocks: int = 1, day:
         embed.add_field(name="Day",      value=day.capitalize(),    inline=True)
     embed.add_field(name="Blocks",       value=block_text,          inline=True)
     embed.add_field(name="How to accept", value="React ✅ below to lock in this scrim!", inline=False)
-    embed.set_footer(text=f"{'LFS_FREE' if is_freeform else 'LFS'}|{discord_id}")
+    embed.add_field(name="\u200b", value=discord_id, inline=False)  # hidden poster ID
+    embed.set_footer(text="LFS_FREE" if is_freeform else "LFS")
 
     await interaction.response.send_message(embed=embed)
     msg_obj = await interaction.original_response()
@@ -658,7 +663,8 @@ async def lfs_cashout(interaction: discord.Interaction, time: str, blocks: int =
         embed.add_field(name="Day",     value=day.capitalize(), inline=True)
     embed.add_field(name="Blocks",      value=block_text,   inline=True)
     embed.add_field(name="How to join", value="React ✅ to claim a slot! Need 3 more teams.", inline=False)
-    embed.set_footer(text=f"CASHOUT_LFS|{discord_id}")
+    embed.add_field(name="\u200b", value=discord_id, inline=False)  # hidden poster ID
+    embed.set_footer(text="CASHOUT_LFS")
 
     await interaction.response.send_message(embed=embed)
     msg_obj = await interaction.original_response()
